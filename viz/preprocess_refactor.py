@@ -588,6 +588,13 @@ DIMENSIONS = [
     {"key": "industry_traction", "label": "Industry Traction", "weight": 0.6},
 ]
 
+# Determine the latest year in the dataset for recency filtering
+_all_of_last = [p["of_last_year"] for p in all_profiles.values() if p.get("of_last_year")]
+DATASET_MAX_YEAR = max(_all_of_last) if _all_of_last else 2040
+# Rising-star candidates must have been active within the last 15 years of the dataset
+RECENCY_HORIZON = 15
+RECENCY_CUTOFF_YEAR = DATASET_MAX_YEAR - RECENCY_HORIZON  # 2025 for a 2040 dataset
+
 candidates = []
 for eid, p in all_profiles.items():
     if eid in exclude_prediction:
@@ -596,9 +603,11 @@ for eid, p in all_profiles.items():
         continue
     if p["of_commitment"] < 0.30:
         continue
+    if (p.get("of_last_year") or 0) < RECENCY_CUTOFF_YEAR:
+        continue
     candidates.append((eid, p))
 
-print(f"Prediction candidates (>=30% OF, >=2 songs): {len(candidates)}")
+print(f"Prediction candidates (>=30% OF, >=2 songs, active after {RECENCY_CUTOFF_YEAR}): {len(candidates)}")
 
 global_of_years = sorted(filter(None, (p["of_last_year"] for _, p in candidates)))
 global_of_min = min(global_of_years) if global_of_years else 1993
@@ -726,13 +735,15 @@ def trend_index_geom_of_signals(momentum_pct, recency_pct, accel, breadth_pct):
     )
 
 
-def rising_star_composite(wds_pct, trend_pct, geo_pct, cons_pct, breadth_pct):
+def rising_star_composite(wds_pct, trend_pct, geo_pct, cons_pct, breadth_pct,
+                          years_inactive=0):
     """Final score in [0,1]: nested multiplicative structure (not a flat weighted sum).
 
     1) Joint headroom √(w·t): dimension strength and forward trend must co-occur in the pool.
     2) One-sided damp (min/max)^α: a flash on one axis cannot fully substitute for the other.
     3) Profile coherence √(geo·cons): balanced OF fingerprint as a multiplier on that core.
-    4) Career credibility √breadth: thin or single-year OF footprints are down-weighted vs sustained arcs."""
+    4) Career credibility √breadth: thin or single-year OF footprints are down-weighted vs sustained arcs.
+    5) Recency decay: artists inactive for many years are penalized exponentially."""
     w = max(float(wds_pct), 1e-9)
     t = max(float(trend_pct), 1e-9)
     joint = math.sqrt(w * t)
@@ -743,7 +754,9 @@ def rising_star_composite(wds_pct, trend_pct, geo_pct, cons_pct, breadth_pct):
     cadence = math.sqrt(max(float(breadth_pct), 0.02))
     mod_shape = 0.48 + 0.52 * shape
     mod_cadence = 0.52 + 0.48 * cadence
-    return min(1.0, core * mod_shape * mod_cadence)
+    # Exponential recency decay: ~7% penalty per year of inactivity
+    recency_decay = math.exp(-0.07 * max(years_inactive, 0))
+    return min(1.0, core * mod_shape * mod_cadence * recency_decay)
 
 
 dim_keys = [d["key"] for d in DIMENSIONS] + ["recency_raw", "activity_breadth_raw"]
@@ -811,12 +824,14 @@ for i, r in enumerate(ranked):
     r["cons_pct"] = round(cons_pcts[i], 4)
     r["wds_pct"] = round(wds_pcts[i], 4)
     r["breadth_pct"] = round(percentiles["activity_breadth_raw"][i], 4)
+    inactive = DATASET_MAX_YEAR - (r["profile"].get("of_last_year") or DATASET_MAX_YEAR)
     final_score = rising_star_composite(
         r["wds_pct"],
         r["trend_pct"],
         r["geo_pct"],
         r["cons_pct"],
         r["breadth_pct"],
+        years_inactive=inactive,
     )
     r["score"] = round(final_score, 4)
     r["trend_score"] = round(r["trend_pct"], 4)
@@ -857,8 +872,10 @@ for i, row in enumerate(raw_rows):
     cons_pct = round(percentile_value_in_pool(consistency, pool_cs), 4)
     wds_pct = round(percentile_value_in_pool(weighted_sum, pool_wds), 4)
     breadth_pct_c = round(percentiles["activity_breadth_raw"][i], 4)
+    comp_inactive = DATASET_MAX_YEAR - (p.get("of_last_year") or DATASET_MAX_YEAR)
     final_score = rising_star_composite(
-        wds_pct, trend_pct, geo_pct, cons_pct, breadth_pct_c
+        wds_pct, trend_pct, geo_pct, cons_pct, breadth_pct_c,
+        years_inactive=comp_inactive,
     )
     name = p["display_name"]
     comparison_scores[name] = {
