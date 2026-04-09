@@ -1,0 +1,43 @@
+# Dependencies
+node_modules/
+
+# Playwright artifacts
+test-results/
+playwright-report/
+blob-report/
+playwright/.cache/
+
+# OS / editor
+.DS_Store
+Thumbs.db
+*.swp
+.idea/
+.vscode/
+
+# Cursor / Claude local config
+.cursor/
+.claude/
+
+# Non-source files (PDFs, Office docs, answer sheets)
+*.pdf
+*.pptx
+*.docx
+*.htm
+VAST Challenge 2025 C1 Answer Sheet_files/
+
+# PPT assets (generated, not part of project)
+ppt_assets/
+
+# Dashboard drafts (if not needed)
+dashboard/
+
+# Scripts (auto-generated helper scripts)
+scripts/
+
+# Docs (generated docs, not core project)
+docs/
+
+# Logs / env
+.env
+.env.*
+npm-debug.log*
